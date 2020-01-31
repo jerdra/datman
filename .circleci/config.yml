@@ -15,7 +15,7 @@ jobs:
             tox
       - codecov/upload:
           file: tests/results/junit*xml
-          flag: unittests
+          flags: unittests
       - save_cache:
           key: tox-env-{{ .Branch }}-{{ checksum "setup.cfg" }}
           paths: .tox
