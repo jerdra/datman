@@ -179,7 +179,7 @@ workflows:
             - deployable
           filters:
             branches:
-              only: release
+              ignore: release
             tags:
               only: /.*/
 
