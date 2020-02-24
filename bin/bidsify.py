@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """
 This copies and converts files in nii folder to a bids folder in BIDS format
 
@@ -46,27 +45,27 @@ import datman.dashboard as dashboard
 from datman.bids.check_bids import BIDSEnforcer
 
 # Set up logger
-logging.basicConfig(
-    level=logging.WARN, format="[% (name)s % (levelname)s:" "%(message)s]"
-)
+logging.basicConfig(level=logging.WARN,
+                    format="[% (name)s % (levelname)s:"
+                    "%(message)s]")
 logger = logging.getLogger(os.path.basename(__file__))
 YAML = os.path.abspath(
-        os.path.join(os.path.dirname(__file__),
-                     "../assets/bids/requirements.yaml"))
+    os.path.join(os.path.dirname(__file__),
+                 "../assets/bids/requirements.yaml"))
 
 
 class BIDSFile(object):
 
     # Store and compute on information required to generate a BIDS file
-    def __init__(self, sub, ses, series, dest_dir, bids_prefix, bids_spec):
+    def __init__(self, sub, ses, series, dest_dir, bids_spec):
 
         # Grab description of file and associated BIDS description
         self.sub = sub
         self.ses = ses
         self.series = series
         self.dest_dir = dest_dir
-        self.bids = bids_prefix
         self.spec = bids_spec
+        self.bids = ""
         self.path = ""
 
         # Store JSON meta-data in cache for manipulation
@@ -109,8 +108,8 @@ class BIDSFile(object):
 
     @property
     def rel_path(self):
-        return os.path.join(self.session,
-                            self.bids_type, self.bids + ".nii.gz")
+        return os.path.join(self.session, self.bids_type,
+                            self.bids + ".nii.gz")
 
     @property
     def dest_nii(self):
@@ -121,10 +120,8 @@ class BIDSFile(object):
         Create an identical instance
         """
 
-        return BIDSFile(
-            self.sub, self.ses, self.series,
-            self.dest_dir, self.bids, self.spec
-        )
+        return BIDSFile(self.sub, self.ses, self.series, self.dest_dir,
+                        self.bids, self.spec)
 
     def transfer_files(self):
         """
@@ -150,6 +147,71 @@ class BIDSFile(object):
                     logger.error("Cannot find file {}".format(src))
         return
 
+    def apply_exclusions(self):
+        '''
+        Apply exclusion criteria to scan
+        '''
+
+        def check_exclude(k, val, meta):
+            '''
+            Dictionary item to examine
+            '''
+
+            # If any membership found r e m o v e
+            # What about selection?
+            # Or negative (like missing value?)
+            try:
+                if set(val) & set(meta[k]):
+                    return True
+            except KeyError:
+                pass
+
+            return False
+
+        def eval_tree(nodeid, children, meta):
+            '''
+            Traverse exclusion binary tree
+            '''
+
+            if nodeid not in ['and', 'or']:
+                return check_exclude(nodeid, children, meta)
+
+            results = []
+            for child in children:
+                k, val = child.popitem()
+
+                if k == 'not':
+                    k, val = val.popitem()
+                    results.append(not eval_tree(k, val, meta))
+                else:
+                    results.append(eval_tree(k, val, meta))
+
+            if 'nodeid' == 'and':
+                return all(results)
+
+            return any(results)
+
+        try:
+            exclude = self.get_spec('json', 'exclude')
+        except KeyError:
+            return
+
+        _, val = exclude.popitem()
+        to_exclude = eval_tree('or', val, self.json)
+        return to_exclude
+
+    def prepare(self, cfg, be):
+        """
+        Perform selection/exclusion check otherwise update source
+        and make BIDS name
+        """
+
+        if self.apply_exclusions():
+            return
+
+        self.bids = be.construct_bids_name(self.spec)
+        return self.update_source(cfg, be)
+
     def update_source(self, cfg, be):
         """
         If for a particular file the BIDS specification indicates an
@@ -161,7 +223,8 @@ class BIDSFile(object):
         except KeyError:
             return self
 
-        logger.info("Preferred derivative of {} exists!".format(self.source))
+        logger.info("Preferred derivative of {} specified!".format(
+            self.source))
         logger.info("Updating source file information...")
 
         # Specification of template inputs
@@ -173,15 +236,14 @@ class BIDSFile(object):
 
             alt_template = Template(d["template"]).substitute(template_dict)
             alt_type = d["type"]
-            match_file = glob.glob(
-                "{proj}/{template}".format(
-                    proj=cfg.get_study_base(), template=alt_template
-                )
-            )
+            match_file = glob.glob("{proj}/{template}".format(
+                proj=cfg.get_study_base(), template=alt_template))
 
             try:
                 new_source = match_file[0]
             except IndexError:
+                logger.warning('Preferred derivative could not be found for'
+                               '{}'.format(self.datman))
                 return None
 
             # Produce copy of self
@@ -221,7 +283,6 @@ class BIDSFile(object):
         return j
 
     def add_json_list(self, spec, value):
-
         """
         To internal dictionary add a list type json value to spec
         If non-existant make a new list, otherwise append to current
@@ -234,7 +295,6 @@ class BIDSFile(object):
         return
 
     def get_spec(self, *args):
-
         """
         Iteratively enter dictionary by sequence of keys in order
         """
@@ -303,12 +363,10 @@ def get_tag_bids_spec(cfg, tag):
     # Copy is being used here since python passes by reference and any
     # downstream updates modify the original data which is bad
     try:
-        bids = cfg.system_config["ExportSettings"][tag]["bids"].copy()
+        bids = cfg.get_key("ExportSettings")[tag]["bids"].copy()
     except KeyError:
-        logger.error(
-            "No BIDS tag available for scan type:"
-            "{}, skipping conversion".format(tag)
-        )
+        logger.error("No BIDS tag available for scan type:"
+                     "{}, skipping conversion".format(tag))
         return None
 
     return bids
@@ -327,7 +385,6 @@ def pair_fmaps(series_list):
         results in a lone fmap
 
     """
-
     def pair_on(x):
         return x.get_spec("pair", "label")
 
@@ -386,7 +443,6 @@ def pair_fmaps(series_list):
 
 
 def calculate_average_series(series_list):
-
     """
     For each iterable of BIDSFiles calculate the average series number
     """
@@ -415,7 +471,6 @@ def is_fieldmap_candidate(scan, scan_type):
 
 
 def process_intended_fors(coupled_fmaps, non_fmaps):
-
     """
     Derive intended fors using series value matching
 
@@ -467,7 +522,6 @@ def process_intended_fors(coupled_fmaps, non_fmaps):
 
 
 def prepare_fieldmaps(series_list):
-
     """
     Args:
         series_list                     A list of BIDSFile objects
@@ -522,7 +576,6 @@ def make_bids_template(bids_dir, subject, session):
 
 
 def make_dataset_description(bids_dir, study_name, version):
-
     """
     Make boilerplate dataset_description.json file
     """
@@ -561,12 +614,8 @@ def prioritize_scans(series_list):
                 continue
 
             if f_label == on:
-                logger.info(
-                    "{priority} is prioritized over \
-                    {scan}, not copying {scan}".format(
-                        priority=s, scan=f
-                    )
-                )
+                logger.info("{priority} is prioritized over \
+                    {scan}, not copying {scan}".format(priority=s, scan=f))
                 to_filt.add(f)
 
     # Remove object in filt list from series_list
@@ -582,8 +631,7 @@ def process_subject(subject, cfg, be, bids_dir, rewrite):
     subscan = scan.Scan(subject, cfg)
     bids_sub = ident.get_bids_name()
     bids_ses = ident.timepoint
-    exp_path = make_bids_template(bids_dir,
-                                  "sub-" + bids_sub,
+    exp_path = make_bids_template(bids_dir, "sub-" + bids_sub,
                                   "ses-" + bids_ses)
 
     dm_to_bids = []
@@ -602,19 +650,15 @@ def process_subject(subject, cfg, be, bids_dir, rewrite):
             continue
         bids_dict.update({"sub": bids_sub, "ses": bids_ses})
 
-        bids_prefix = be.construct_bids_name(bids_dict)
-
         # Make required directories
         class_path = os.path.join(exp_path, bids_dict["class"])
         make_directory(class_path)
 
         # Make dm2bids transformation file, update source if applicable
-        bidsfile = BIDSFile(
-            bids_sub, bids_ses, series, class_path, bids_prefix, bids_dict
-        ).update_source(cfg, be)
+        bidsfile = BIDSFile(bids_sub, bids_ses, series, class_path,
+                            bids_dict).prepare(cfg, be)
 
         if bidsfile is None:
-            logger.error("Cannot find derivative of {}".format(series))
             logger.warning("Skipping!")
             continue
 
