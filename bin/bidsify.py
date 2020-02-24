@@ -147,19 +147,16 @@ class BIDSFile(object):
                     logger.error("Cannot find file {}".format(src))
         return
 
-    def apply_exclusions(self):
+    def should_exclude(self):
         '''
         Apply exclusion criteria to scan
         '''
 
         def check_exclude(k, val, meta):
             '''
-            Dictionary item to examine
+            Check whether exclusion criteria is met
             '''
 
-            # If any membership found r e m o v e
-            # What about selection?
-            # Or negative (like missing value?)
             try:
                 if set(val) & set(meta[k]):
                     return True
@@ -192,12 +189,11 @@ class BIDSFile(object):
             return any(results)
 
         try:
-            exclude = self.get_spec('json', 'exclude')
+            exclude = self.get_spec('exclude')
         except KeyError:
             return
 
-        _, val = exclude.popitem()
-        to_exclude = eval_tree('or', val, self.json)
+        to_exclude = eval_tree('or', exclude, self.json)
         return to_exclude
 
     def prepare(self, cfg, be):
@@ -206,7 +202,8 @@ class BIDSFile(object):
         and make BIDS name
         """
 
-        if self.apply_exclusions():
+        if self.should_exclude():
+            logger.info('{} meets exclusion criteria!'.format(self.source))
             return
 
         self.bids = be.construct_bids_name(self.spec)
