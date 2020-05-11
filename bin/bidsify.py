@@ -34,6 +34,7 @@ import glob
 from shutil import copyfile
 import logging
 from string import Template
+from copy import deepcopy
 
 from docopt import docopt
 
@@ -121,7 +122,7 @@ class BIDSFile(object):
         """
 
         return BIDSFile(self.sub, self.ses, self.series, self.dest_dir,
-                        self.bids, self.spec)
+                        self.spec)
 
     def transfer_files(self):
         """
@@ -147,18 +148,17 @@ class BIDSFile(object):
                     logger.error("Cannot find file {}".format(src))
         return
 
-    def should_exclude(self):
+    def should_exclude(self, spec):
         '''
         Apply exclusion criteria to scan
         '''
-
         def check_exclude(k, val, meta):
             '''
             Check whether exclusion criteria is met
             '''
 
             try:
-                if set(val) & set(meta[k]):
+                if set(mk_list(val)) & set(mk_list(meta[k])):
                     return True
             except KeyError:
                 pass
@@ -183,15 +183,15 @@ class BIDSFile(object):
                 else:
                     results.append(eval_tree(k, val, meta))
 
-            if 'nodeid' == 'and':
+            if nodeid == 'and':
                 return all(results)
 
             return any(results)
 
         try:
-            exclude = self.get_spec('exclude')
+            exclude = deepcopy(spec['exclude'])
         except KeyError:
-            return
+            return False
 
         to_exclude = eval_tree('or', exclude, self.json)
         return to_exclude
@@ -202,7 +202,7 @@ class BIDSFile(object):
         and make BIDS name
         """
 
-        if self.should_exclude():
+        if self.should_exclude(self.spec):
             logger.info('{} meets exclusion criteria!'.format(self.source))
             return
 
@@ -230,6 +230,11 @@ class BIDSFile(object):
         # Process each alternative
         alts = []
         for d in alt:
+
+            if self.should_exclude(d):
+                logger.info('{} is configured '
+                            'to skip derivatives'.format(self.datman))
+                return self
 
             alt_template = Template(d["template"]).substitute(template_dict)
             alt_type = d["type"]
@@ -316,6 +321,15 @@ class BIDSFile(object):
 
 
 # SCRIPT DEFINITIONS
+
+def mk_list(v):
+    '''
+    Given a value convert into a list iterable
+    '''
+
+    if isinstance(v, str):
+        return [v]
+    return v
 
 
 def make_directory(path, suppress=False):
